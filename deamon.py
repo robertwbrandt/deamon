@@ -399,9 +399,16 @@ class deamonClass(object):
 
 
 
+def getDiskSpace():
+  p = subprocess.Popen(['df'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  out, err = p.communicate()
+  rc = p.returncode
 
-
-
+  tmp =[]
+  for line in str(out).split('\n')[1:]:
+    if line:
+      tmp.append([ str(s).strip() for s in str(line).split('%',1) ])
+  print tmp
 
 
 
@@ -410,6 +417,13 @@ class deamonClass(object):
 
 # Start program
 if __name__ == "__main__":
+
+
+  getDiskSpace()
+  exit()
+
+
+
   command_line_args()
 
   if args['diskspace']:
