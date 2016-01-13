@@ -399,12 +399,20 @@ class deamonClass(object):
 
 
 
-def getDiskSpace():
+def getDiskSpace(output = "text"):
   def rightSplit(s):
     tmp = str(s).rsplit(' ',1)
     if len(tmp) == 1:
       tmp.insert(0,'')
     return ( str(tmp[0]).strip(), str(tmp[1]).strip() )
+
+  def humanReadable(n):
+    n = int(n)
+    for (multi,label) in ( (1.0, 'K'), (1024.0, 'M'), (1048576.0, 'G'), (1073741824.0, 'T'), (1099511627776.0, 'P'), (1125899906842624.0, 'E'), (1152921504606846976.0, 'Z') ):
+      if n/multi < 1000:
+        return str( "%1.1f" % (n/multi) ) + label
+    return str( "%1.1f" % (n/1180591620717411303424.0) ) + 'Y'
+
   # p = subprocess.Popen(['df'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   # out, err = p.communicate()
   # rc = p.returncode
@@ -468,18 +476,6 @@ GROUP on /srv/group type nssvol (rw,name=GROUP,norename)
 proc on /var/lib/ntp/proc type proc (rw)
 """
 
-
-
-
-
-
-
-
-
-
-
-
-
   diskSpace = {}
   # Process df output
   tmp = []
@@ -502,7 +498,6 @@ proc on /var/lib/ntp/proc type proc (rw)
     filesystem, size = rightSplit(line)
     diskSpace[mount] = {'filesystem':filesystem, 'size':size, 'used':used, 'available':available, 'percent':percent}
 
-
   # Process mount output
   tmp = []
   for line in str(out2).split('\n'):
@@ -517,7 +512,41 @@ proc on /var/lib/ntp/proc type proc (rw)
     if not diskSpace[key].has_key('fstype'):
       diskSpace.update({'fstype':'', 'options':''})
 
-  print diskSpace
+  if output == "xml":
+    print output
+  else:
+    width = {'filesystem':10, 'size':5, 'used':5, 'available':5, 'percent':4, 'mount':10, 'fstype':5, 'options':6}
+    for k in diskSpace.keys():
+      width['filesystem'] = max( width['filesystem'], len(diskSpace[k]['filesystem']) )
+      width['mount'] = max( width['mount'], len(k) )
+      width['fstype'] = max( width['fstype'], len(diskSpace[k]['fstype']) )
+      width['options'] = max( width['options'], len(diskSpace[k]['options']) )
+
+      width['size'] = max( width['size'], len( humanReadable(diskSpace[k]['size']))  )
+      width['used'] = max( width['used'], len( humanReadable(diskSpace[k]['used'])) )
+      width['available'] = max( width['available'], len( humanReadable(diskSpace[k]['available'])) )
+      width['percent'] = max( width['percent'], len(diskSpace[k]['percent']) + 1 )
+
+    tmp = "Filesystem".ljust(width['filesystem'])
+    tmp += " " + "Size".rjust(width['size'])
+    tmp += " " + "Used".rjust(width['used'])
+    tmp += " " + "Avail".rjust(width['available'])
+    tmp += " " + "Use".rjust(width['percent'])
+    tmp += " " + "Mounted".ljust(width['mount'])
+    tmp += " " + "FSType".center(width['fstype'])
+    tmp += " " + "Options".center(width['options'])
+    print tmp
+    for k in sorted( diskSpace.keys() ):
+      tmp = diskSpace[k]['filesystem'].ljust(width['filesystem'])
+      tmp += " " + humanReadable(diskSpace[k]['size']).rjust(width['size'])
+      tmp += " " + humanReadable(diskSpace[k]['used']).rjust(width['used'])
+      tmp += " " + humanReadable(diskSpace[k]['available']).rjust(width['available'])
+      tmp += " " + str(diskSpace[k]['percent']+"%").rjust(width['percent'])
+      tmp += " " + k.ljust(width['mount'])
+      tmp += " " + diskSpace[k]['fstype'].rjust(width['fstype'])
+      tmp += " " + diskSpace[k]['options'].ljust(width['options'])
+      print tmp
+
 
 # Start program
 if __name__ == "__main__":
