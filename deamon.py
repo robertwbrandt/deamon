@@ -2,7 +2,7 @@
 """
 Class used to control system Deamons, either upstart or SysV.
 """
-import argparse, os, fnmatch, subprocess, sys
+import argparse, os, fnmatch, subprocess, sys, re
 import xml.etree.ElementTree as ElementTree
 
 args = {}
@@ -17,6 +17,8 @@ args['upstart'] = False
 args['sysv'] = False
 args['name'] = ''
 args['diskspace'] = False
+args['preamble'] = False
+args['command'] = ''
 encoding = "utf-8"
 
 def command_line_args():
@@ -37,7 +39,7 @@ def command_line_args():
                     default=args['output'],
                     choices=['text', 'xml', 'pretty'],
                     help='Display output type.')
-  parser.add_argument('-d', '--debug',
+  parser.add_argument('--debug',
                     required=False,
                     action='store_true')  
   parser.add_argument('--autocomplete',
@@ -59,9 +61,15 @@ def command_line_args():
                     required=False,
                     action='store',
                     type=str)
-  parser.add_argument('--diskspace',
+  parser.add_argument('-d', '--diskspace',
                     required=False,
                     action='store_true')
+  parser.add_argument('-p', '--preamble',
+                    required=False,
+                    action='store_true')
+  parser.add_argument('-c', '--command',
+                    required=False,
+                    action='store')  
   parser.add_argument('arguments',
                     nargs=argparse.REMAINDER,
                     type=strlower)
@@ -397,9 +405,7 @@ class deamonClass(object):
     self.__show = tmpShow
     return output
 
-
-
-def getDiskSpace(output = "text"):
+def getDiskSpace(output = "text", separator = " "):
   def rightSplit(s):
     tmp = str(s).rsplit(' ',1)
     if len(tmp) == 1:
@@ -413,71 +419,13 @@ def getDiskSpace(output = "text"):
         return str( "%1.1f" % (n/multi) ) + label
     return str( "%1.1f" % (n/1180591620717411303424.0) ) + 'Y'
 
-  # p = subprocess.Popen(['df'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-  # out, err = p.communicate()
-  # rc = p.returncode
-
-#   out = """Filesystem     1K-blocks    Used Available Use% Mounted on
-# udev             3045508       4   3045504   1% /dev
-# tmpfs             611272     952    610320   1% /run
-# /dev/sda1       20959232 4008828  16950404  20% /
-# none                   4       0         4   0% /sys/fs/cgroup
-# none                5120       0      5120   0% /run/lock
-# none             3056356       0   3056356   0% /run/shm
-# none              102400       0    102400   0% /run/user
-# """
-
-  out = """Filesystem           1K-blocks      Used Available Use% Mounted on
-/dev/sda1             11352976   4183056   6593192  39% /
-udev                   1553848       128   1553720   1% /dev
-/dev/sda2              2071416    216456   1749736  12% /var/log
-/dev/sda3              2055632    597484   1353728  31% /var/opt/novell
-/dev/sdb2              1019896    283428    684660  30% /srv/sys
-/dev/sdb3             10325780    350084   9451176   4% /usr/snapvault/db
-/dev/sdb4              5154884   1031728   3861300  22% /var/opt/novell/iprint
-/boot                 11352976   4183056   6593192  39% /backup/boot
-/etc                  11352976   4183056   6593192  39% /backup/etc
-/var/opt/novell/eDirectory
-                       2055632    597484   1353728  31% /backup/var/opt/novell/eDirectory
-/var/opt/novell/iprint
-                       5154884   1031728   3861300  22% /backup/var/opt/novell/iprint
-/dev/evms/DATA       1073740800 648793832 424946968  61% /opt/novell/nss/mnt/.pools/DATA
-admin                     4096         0      4096   0% /_admin
-HOME                 1073740800 220287196 424946968  35% /srv/home
-GROUP                1073740800 425311944 424946968  51% /srv/group
-/srv/sys               1019896    283428    684660  30% /usr/novell/sys
-/srv/home            1073740800 220287196 424946968  35% /home
-"""
-
-  out2 = """/dev/sda1 on / type ext3 (rw,acl,user_xattr)
-proc on /proc type proc (rw)
-sysfs on /sys type sysfs (rw)
-debugfs on /sys/kernel/debug type debugfs (rw)
-udev on /dev type tmpfs (rw)
-devpts on /dev/pts type devpts (rw,mode=0620,gid=5)
-/dev/sda2 on /var/log type ext3 (rw,acl,user_xattr)
-/dev/sda3 on /var/opt/novell type ext3 (rw,acl,user_xattr)
-/dev/sdb2 on /srv/sys type ext3 (rw,acl,user_xattr)
-/dev/sdb3 on /usr/snapvault/db type ext3 (rw,acl,user_xattr)
-/dev/sdb4 on /var/opt/novell/iprint type ext3 (rw,acl,user_xattr)
-/boot on /backup/boot type none (rw,bind)
-/etc on /backup/etc type none (rw,bind)
-/var/opt/novell/eDirectory on /backup/var/opt/novell/eDirectory type none (rw,bind)
-/var/opt/novell/iprint on /backup/var/opt/novell/iprint type none (rw,bind)
-fusectl on /sys/fs/fuse/connections type fusectl (rw)
-nfsd on /proc/fs/nfsd type nfsd (rw)
-novfs on /var/opt/novell/nclmnt type novfs (rw)
-/dev/evms/DATA on /opt/novell/nss/mnt/.pools/DATA type nsspool (rw,name=DATA)
-admin on /_admin type nssadmin (rw)
-HOME on /srv/home type nssvol (rw,name=HOME,norename)
-GROUP on /srv/group type nssvol (rw,name=GROUP,norename)
-/srv/sys on /usr/novell/sys type none (rw,bind,_netdev)
-/srv/home on /home type none (rw,bind,_netdev)
-proc on /var/lib/ntp/proc type proc (rw)
-"""
-
   diskSpace = {}
+
   # Process df output
+  p = subprocess.Popen(['df'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  out, err = p.communicate()
+  rc = p.returncode
+
   tmp = []
   for line in str(out).split('\n')[1:]:
     if line:
@@ -499,6 +447,10 @@ proc on /var/lib/ntp/proc type proc (rw)
     diskSpace[mount] = {'filesystem':filesystem, 'size':size, 'used':used, 'available':available, 'percent':percent}
 
   # Process mount output
+  p = subprocess.Popen(['mount'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  out2, err = p.communicate()
+  rc = p.returncode
+
   tmp = []
   for line in str(out2).split('\n'):
     if line and line[0] != '#' and ' on ' in line and ' type ' in line:
@@ -512,55 +464,82 @@ proc on /var/lib/ntp/proc type proc (rw)
     if not diskSpace[key].has_key('fstype'):
       diskSpace.update({'fstype':'', 'options':''})
 
-  if output == "xml":
-    print output
+    if output == "xml":
+      xml = ElementTree.Element('deamons')
+      d = ElementTree.SubElement(xml, 'deamon', attrib={'name':'diskspace'})
+      for k in diskSpace.keys():
+        diskSpace[k].update( {"mount":k, 'sizeHuman':humanReadable(diskSpace[k]['size']), 'usedHuman':humanReadable(diskSpace[k]['used']), 'availableHuman':humanReadable(diskSpace[k]['available']) } )
+        ElementTree.SubElement(d, 'filesystem', attrib=diskSpace[k])
+      return '<?xml version="1.0" encoding="' + encoding + '"?>\n' + ElementTree.tostring(xml, encoding=encoding, method="xml")
   else:
     width = {'filesystem':10, 'size':5, 'used':5, 'available':5, 'percent':4, 'mount':10, 'fstype':5, 'options':6}
     for k in diskSpace.keys():
       width['filesystem'] = max( width['filesystem'], len(diskSpace[k]['filesystem']) )
       width['mount'] = max( width['mount'], len(k) )
-      width['fstype'] = max( width['fstype'], len(diskSpace[k]['fstype']) )
-      width['options'] = max( width['options'], len(diskSpace[k]['options']) )
-
       width['size'] = max( width['size'], len( humanReadable(diskSpace[k]['size']))  )
       width['used'] = max( width['used'], len( humanReadable(diskSpace[k]['used'])) )
       width['available'] = max( width['available'], len( humanReadable(diskSpace[k]['available'])) )
       width['percent'] = max( width['percent'], len(diskSpace[k]['percent']) + 1 )
+      if output == "text":
+        width['fstype'] = max( width['fstype'], len(diskSpace[k]['fstype']) )
+        width['options'] = max( width['options'], len(diskSpace[k]['options']) )
 
-    tmp = "Filesystem".ljust(width['filesystem'])
-    tmp += " " + "Size".rjust(width['size'])
-    tmp += " " + "Used".rjust(width['used'])
-    tmp += " " + "Avail".rjust(width['available'])
-    tmp += " " + "Use".rjust(width['percent'])
-    tmp += " " + "Mounted".ljust(width['mount'])
-    tmp += " " + "FSType".center(width['fstype'])
-    tmp += " " + "Options".center(width['options'])
-    print tmp
+    tmp = [ "Filesystem".ljust(width['filesystem']) ]
+    tmp.append( "Size".rjust(width['size']) )
+    tmp.append( "Used".rjust(width['used']) )
+    tmp.append( "Avail".rjust(width['available']) )
+    tmp.append( "Use".rjust(width['percent']) )
+    tmp.append( "Mounted".ljust(width['mount']) )
+    if output == "text":
+      tmp.append( "FSType".center(width['fstype']) )
+      tmp.append( "Options".center(width['options']) )
+    outputList = [ str(separator).join(tmp) ]
     for k in sorted( diskSpace.keys() ):
-      tmp = diskSpace[k]['filesystem'].ljust(width['filesystem'])
-      tmp += " " + humanReadable(diskSpace[k]['size']).rjust(width['size'])
-      tmp += " " + humanReadable(diskSpace[k]['used']).rjust(width['used'])
-      tmp += " " + humanReadable(diskSpace[k]['available']).rjust(width['available'])
-      tmp += " " + str(diskSpace[k]['percent']+"%").rjust(width['percent'])
-      tmp += " " + k.ljust(width['mount'])
-      tmp += " " + diskSpace[k]['fstype'].rjust(width['fstype'])
-      tmp += " " + diskSpace[k]['options'].ljust(width['options'])
-      print tmp
+      tmp = [ diskSpace[k]['filesystem'].ljust(width['filesystem']) ]
+      tmp.append( humanReadable(diskSpace[k]['size']).rjust(width['size']) )
+      tmp.append( humanReadable(diskSpace[k]['used']).rjust(width['used']) )
+      tmp.append( humanReadable(diskSpace[k]['available']).rjust(width['available']) )
+      tmp.append( str(diskSpace[k]['percent']+"%").rjust(width['percent']) )
+      tmp.append( k.ljust(width['mount']) )
+      red = norm = ""
+      if output == "text":
+        tmp.append( diskSpace[k]['fstype'].rjust(width['fstype']) )
+        tmp.append( diskSpace[k]['options'].ljust(width['options']) )
+      elif int(diskSpace[k]['percent']) > 10:
+        red = "\033[1;91m"
+        norm = "\033[m\017"
+      outputList.append( red + str(separator).join(tmp) + norm )
+    return "\n".join(outputList)
+
+def getPreamble():
+  # Process top output
+  p = subprocess.Popen(['top', '-n', '1'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  out, err = p.communicate()
+  rc = p.returncode
+  out = out.split("\n")[:5]
+  ansi_escape = re.compile(r'\x1b[^m]*[mK]')
+  out = [ ansi_escape.sub('', line) for line in out ]
+  preamble = re.compile(r'^\D*')
+  out[0] = preamble.sub('', out[0])
+  return "\n".join(out)
 
 
 # Start program
 if __name__ == "__main__":
-
-
-  getDiskSpace()
-  exit()
-
-
-
   command_line_args()
 
   if args['diskspace']:
-    print getDiskSpace()
+    print getDiskSpace(output = args['output'], separator = " ")
+    exit()
+
+  if args['preamble']:
+    if args['output'] == "xml":
+      exit('The preamble is not available in XML.')
+    print getPreamble()
+    exit()
+
+  if args['command']:
+    print args['command']
     exit()
 
   if args['autocomplete']:
