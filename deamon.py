@@ -25,7 +25,7 @@ args['sysv'] = False
 args['name'] = ''
 args['diskspace'] = False
 args['preamble'] = False
-args['command'] = ''
+args['command'] = False
 encoding = "utf-8"
 
 class customUsageVersion(argparse.Action):
@@ -53,10 +53,12 @@ class customUsageVersion(argparse.Action):
       print textwrap.fill(version, self.__row)
       print "\nWritten by Bob Brandt <projects@brandt.ie>."
     else:
-      length = len(self.__prog) + 7
       print "Usage: " + self.__prog + " [-o {text,xml,pretty}] [--list] [--status-all]"
-      print " " * length, "[-u|s] [-n NAME] [-c|d|p] [DEAMON or COMMAND]"
-      print "Script used to controlUpstart and SysV Deamons.\n"
+      print " " * (len(self.__prog) + 7), "[-u|s] [-n NAME] Deamon Commands ..."
+      print " " * (len(self.__prog) + 3), "or  [-n NAME] -c Command Arguments ..."
+      print " " * (len(self.__prog) + 3), "or  -d [DiskPercent]"
+      print " " * (len(self.__prog) + 3), "or  -p"
+      print "\nScript used to controlUpstart and SysV Deamons.\n"
       print "Options:"
       options = []
       options.append(("-h, --help",       "Show this help message and exit"))
@@ -69,7 +71,7 @@ class customUsageVersion(argparse.Action):
       options.append(("-n, --name NAME",  "Use the given NAME in the \"pretty\" output"))
       options.append(("-c, --command",    "Run the command given"))
       options.append(("-d, --diskspace",  "Return Disk Space Usage"))
-      options.append(("-p, --preamble",   "Return Uptime and Load averages, Task and CPU states and Memory usage"))
+      options.append(("-p, --preamble",   "Return Uptime and Load averages, Task and CPU states and Memory usage (Not available via xml output)"))
       length = max( [ len(option[0]) for option in options ] )
       for option in options:
         description =  textwrap.wrap(option[1], (self.__row - length - 5))
@@ -78,7 +80,6 @@ class customUsageVersion(argparse.Action):
     exit(self.__exit)
 def command_line_args():
   global args
-
   parser = argparse.ArgumentParser(add_help=False)
   parser.add_argument('-v', '--version', action=customUsageVersion, version=version, max=80)
   parser.add_argument('-h', '--help', action=customUsageVersion)
@@ -87,6 +88,9 @@ def command_line_args():
                     default=args['output'],
                     choices=['text', 'xml', 'pretty'],
                     help='Display output type.')
+  parser.add_argument('--setup',
+                    required=False,
+                    action='store_true')    
   parser.add_argument('--debug',
                     required=False,
                     action='store_true')  
@@ -117,7 +121,7 @@ def command_line_args():
                     action='store_true')
   parser.add_argument('-c', '--command',
                     required=False,
-                    action='store')  
+                    action='store_true')  
   parser.add_argument('arguments',
                     nargs=argparse.REMAINDER,
                     type=strlower)
@@ -453,7 +457,7 @@ class deamonClass(object):
     self.__show = tmpShow
     return output
 
-def getDiskSpace(output = "text", separator = " "):
+def getDiskSpace(output = "text", separator = " ", warning = 80):
   def rightSplit(s):
     tmp = str(s).rsplit(' ',1)
     if len(tmp) == 1:
@@ -492,7 +496,7 @@ def getDiskSpace(output = "text", separator = " "):
     line, available = rightSplit(line)
     line, used = rightSplit(line)
     filesystem, size = rightSplit(line)
-    diskSpace[mount] = {'filesystem':filesystem, 'size':size, 'used':used, 'available':available, 'percent':percent}
+    diskSpace[mount] = {'filesystem':filesystem, 'size':size, 'used':used, 'available':available, 'percent':percent, 'warning':bool(int(percent)>=int(warning))}
 
   # Process mount output
   p = subprocess.Popen(['mount'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -553,7 +557,7 @@ def getDiskSpace(output = "text", separator = " "):
       if output == "text":
         tmp.append( diskSpace[k]['fstype'].rjust(width['fstype']) )
         tmp.append( diskSpace[k]['options'].ljust(width['options']) )
-      elif int(diskSpace[k]['percent']) > 10:
+      elif diskSpace[k]['warning']:
         red = "\033[1;91m"
         norm = "\033[m\017"
       outputList.append( red + str(separator).join(tmp) + norm )
@@ -577,7 +581,7 @@ if __name__ == "__main__":
   command_line_args()
 
   if args['diskspace']:
-    print getDiskSpace(output = args['output'], separator = " ")
+    print getDiskSpace(output = args['output'], separator = " ", warning = 80)
     exit()
 
   if args['preamble']:
