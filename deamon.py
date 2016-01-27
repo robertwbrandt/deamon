@@ -520,8 +520,9 @@ def getDiskSpace(output = "text", separator = " ", warning = 80):
       xml = ElementTree.Element('deamons')
       d = ElementTree.SubElement(xml, 'deamon', attrib={'name':'diskspace'})
       for k in diskSpace.keys():
-        diskSpace[k].update( {"mount":k, 'sizeHuman':humanReadable(diskSpace[k]['size']), 'usedHuman':humanReadable(diskSpace[k]['used']), 'availableHuman':humanReadable(diskSpace[k]['available']) } )
-        ElementTree.SubElement(d, 'filesystem', attrib=diskSpace[k])
+        attrib = { tmpKey: str(diskSpace[k][tmpKey]) for tmpKey in diskSpace[k].keys() }
+        attrib.update( {"mount":k, 'sizeHuman':humanReadable(diskSpace[k]['size']), 'usedHuman':humanReadable(diskSpace[k]['used']), 'availableHuman':humanReadable(diskSpace[k]['available']) } )
+        ElementTree.SubElement(d, 'filesystem', attrib=attrib)
       return '<?xml version="1.0" encoding="' + encoding + '"?>\n' + ElementTree.tostring(xml, encoding=encoding, method="xml")
   else:
     width = {'filesystem':10, 'size':5, 'used':5, 'available':5, 'percent':4, 'mount':10, 'fstype':5, 'options':6}
@@ -581,7 +582,11 @@ if __name__ == "__main__":
   command_line_args()
 
   if args['diskspace']:
-    print getDiskSpace(output = args['output'], separator = " ", warning = 80)
+    if args['arguments']:
+      args['arguments'] = int(args['arguments'][0])
+    else:
+      args['arguments'] = 80
+    print getDiskSpace(output = args['output'], separator = " ", warning = args['arguments'])
     exit()
 
   if args['preamble']:
