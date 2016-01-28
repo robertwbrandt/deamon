@@ -126,8 +126,9 @@ def command_line_args():
                     nargs=argparse.REMAINDER,
                     type=strlower)
   args.update(vars(parser.parse_args()))
-  if args["name"] is None: args["name"] = ""
+  # if args["name"] is None: args["name"] = ""
   if args["name"]: args["output"] = "pretty"
+
 
 class strlower(str):
   def __new__(cls, *args, **kw):
@@ -386,7 +387,6 @@ class deamonClass(object):
     self.__show = tmpShow
     return output
 
-
   def execute(self, command, deamon, sysv = None, upstart = None, output = "text", name=""):
     output = str(output).lower()
     if output not in ["text", "xml", "pretty"]: output = "text"
@@ -599,78 +599,66 @@ if __name__ == "__main__":
     autocomplete(deamons, args['arguments'])
     exit()
 
-  deamon = ""
-  if len(args['arguments']) > 1:
-    deamon = str(args['arguments'][0])
-    del args['arguments'][0]
-
-
   if args['command']:
-
-  else:
-    deamon = deamonClass(filters=deamon, sysv=args['sysv'], upstart=args['upstart'], debug = args['debug'], xmlEncoding = encoding)
-    deamon.load()
-
-    if args['list']:
-      print deamon.list(output=args["output"])
-      exit()
-
-    if args['status_all']:
-      if args["output"] != "xml":
-        for d in deamon.deamons:
-          if deamon.upstart(d):
-            print deamon.execute("status", d, output=args["output"], upstart=True, name=args["name"])
-          if deamon.sysv(d):
-            print deamon.execute("status", d, output=args["output"], sysv=True, name=args["name"])
-      else:
-        xmlNew = ElementTree.Element('deamons')
-        for d in deamon.deamons:
-          deamonNew = ElementTree.SubElement(xmlNew, 'deamon', attrib={'name':d})
-
-          if deamon.upstart(d):
-            oldXML = ElementTree.fromstring(deamon.execute("status", d, output=args["output"], upstart=True, name=args["name"]))
-            for child in oldXML:
-              if child.tag == "deamon": deamonNew.extend(list(child))
-          if deamon.sysv(d):
-            oldXML = ElementTree.fromstring(deamon.execute("status", d, output=args["output"], sysv=True, name=args["name"]))
-            for child in oldXML:
-              if child.tag == "deamon": deamonNew.extend(list(child))
-
-        print '<?xml version="1.0" encoding="' + encoding + '"?>'
-        print ElementTree.tostring(xmlNew, encoding=encoding, method="xml")
-      exit()
+    p = subprocess.Popen(args['arguments'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    rc = p.returncode
+    if args["output"] == "xml":
+      xml = ElementTree.Element('deamons')
+      cmd = ElementTree.SubElement(xml, 'command', attrib={'cmdStr':" ".join(args['arguments']), "returncode":str(rc) })
+      o =  ElementTree.SubElement(xml, 'output')
+      o.text = out
+      if err:
+        e =  ElementTree.SubElement(xml, 'error')
+        e.text = err
+      print '<?xml version="1.0" encoding="' + encoding + '"?>\n' + ElementTree.tostring(xml, encoding=encoding, method="xml")
+    elif args["output"] == "text":
+      print out
+      if err: print err
+    else:
+      print deamonFormat().write(args['name'], "status", rc)
+    exit(rc)
 
 
 
 
+  deamonFilter = "*"
+  cmd = "status"
+  if len(args['arguments']) > 0: deamonFilter = args['arguments'][0]
+  if len(args['arguments']) > 1: cmd = args['arguments'][1]
+  if args['status_all']: 
+    cmd = "status"
+    args['name'] = ""
 
+  deamon = deamonClass(filters=[deamonFilter], sysv=args['sysv'], upstart=args['upstart'], debug = args['debug'], xmlEncoding = encoding)
+  deamon.load()
 
-
-
-
+  if args['list']:
+    print deamon.list(output=args["output"])
+    exit()
 
   if args["output"] != "xml":
     for d in deamon.deamons:
       if deamon.upstart(d):
-        print deamon.execute(command, d, output=args["output"], upstart=True, name=args["name"])
-      elif deamon.sysv(d):
-        print deamon.execute(command, d, output=args["output"], sysv=True, name=args["name"])
+        print deamon.execute(cmd, d, output=args["output"], name=args["name"])
+      if deamon.sysv(d):
+        print deamon.execute(cmd, d, output=args["output"], name=args["name"])
   else:
     xmlNew = ElementTree.Element('deamons')
     for d in deamon.deamons:
       deamonNew = ElementTree.SubElement(xmlNew, 'deamon', attrib={'name':d})
 
       if deamon.upstart(d):
-        oldXML = ElementTree.fromstring(deamon.execute(command, d, output=args["output"], upstart=True, name=args["name"]))
+        oldXML = ElementTree.fromstring(deamon.execute(cmd, d, output=args["output"], name=args["name"]))
         for child in oldXML:
           if child.tag == "deamon": deamonNew.extend(list(child))
-      elif deamon.sysv(d):
-        oldXML = ElementTree.fromstring(deamon.execute(command, d, output=args["output"], sysv=True, name=args["name"]))
+      if deamon.sysv(d):
+        oldXML = ElementTree.fromstring(deamon.execute(cmd, d, output=args["output"], name=args["name"]))
         for child in oldXML:
           if child.tag == "deamon": deamonNew.extend(list(child))
 
     print '<?xml version="1.0" encoding="' + encoding + '"?>'
     print ElementTree.tostring(xmlNew, encoding=encoding, method="xml")
-  
-  exit()
+
+
 
