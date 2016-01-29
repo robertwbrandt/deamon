@@ -18,6 +18,7 @@ args['output'] = "text"
 args['arguments'] = []
 args['debug'] = False
 args['autocomplete'] = False
+args['setup'] = False
 args['list'] = False
 args['status_all'] = False
 args['upstart'] = False
@@ -53,9 +54,9 @@ class customUsageVersion(argparse.Action):
       print textwrap.fill(version, self.__row)
       print "\nWritten by Bob Brandt <projects@brandt.ie>."
     else:
-      print "Usage: " + self.__prog + " [-o {text,xml,pretty}] [--list] [--status-all]"
-      print " " * (len(self.__prog) + 7), "[-u|s] [-n NAME] Deamon Commands ..."
-      print " " * (len(self.__prog) + 3), "or  [-n NAME] -c Command Arguments ..."
+      print "Usage: " + self.__prog + " [-o {text,xml,pretty}] [-n NAME] [--list] [--status-all]"
+      print " " * (len(self.__prog) + 7), "[-u|s] Deamon Command"
+      print " " * (len(self.__prog) + 3), "or  -c Command Arguments ..."
       print " " * (len(self.__prog) + 3), "or  -d [DiskPercent]"
       print " " * (len(self.__prog) + 3), "or  -p"
       print "\nScript used to controlUpstart and SysV Deamons.\n"
@@ -124,23 +125,31 @@ def command_line_args():
                     action='store_true')  
   parser.add_argument('arguments',
                     nargs=argparse.REMAINDER,
-                    type=strlower)
+                    type=str)
   args.update(vars(parser.parse_args()))
-  # if args["name"] is None: args["name"] = ""
-  if args["name"]: args["output"] = "pretty"
+
+def setup():
+  if os.geteuid() != 0:
+    exit("You need to have root privileges to setup this script.\nPlease try again, this time using 'sudo'.\nExiting.")
+
+  # Create Symbolic link at /usr/local/bin
+  src = os.path.realpath( __file__ )
+  dst = os.path.join( '/usr/local/bin', os.path.splitext(os.path.basename(__file__))[0] )
+  os.symlink(src, dst)
+
+  exit()
 
 
-class strlower(str):
-  def __new__(cls, *args, **kw):
-    newargs = [ str(s).lower() for s in args ]
-    newkw = { k: str(v).lower() for k,v in kw.iteritems() }
-    return str.__new__(cls, *newargs, **newkw)
 
-  def rreplace(self, old, new, occurrence):
-    li = self.rsplit(old, occurrence)
-    return new.join(li)
 
-class deamonFormat():
+
+
+
+class outputPretty():
+  """
+  Return a string that will display a color coded status message of a command
+  formated to the width of the current terminal.
+  """
   def __init__(self):
     # Get Terminal Width and Height
     def ioctl_GWINSZ(fd):
@@ -201,8 +210,35 @@ class deamonFormat():
     return prefix + self.state[s]
 
 
-class deamonClass(object):
+def getCommand(cmdList, output, name = "", xmlAttribs = {}):
+  """
+  Run a specified command and return a string with the output
+  """
+  p = subprocess.Popen(cmdList, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  out, err = p.communicate()
+  rc = p.returncode
 
+  if not name: name = cmdList[0]
+  if output == "xml":
+    xml = ElementTree.Element('deamons')
+    xmlAttribs.update({'name':name, 'cmdStr':" ".join(cmdList), "returncode":rc })
+    cmd = ElementTree.SubElement(xml, 'deamon', attrib={ k:str(xmlAttribs[k]) for k in xmlAttribs.keys() } )
+    o =  ElementTree.SubElement(cmd, 'output')
+    o.text = str(out).strip()
+    if err:
+      e =  ElementTree.SubElement(cmd, 'error')
+      e.text = str(err).strip()
+    return '<?xml version="1.0" encoding="' + encoding + '"?>\n' + ElementTree.tostring(xml, encoding=encoding, method="xml")
+  elif output == "text":
+    if err: out = out + '\n' + err    
+    return rc, out
+  else:
+    return rc, outputPretty().write(name, "status", rc)
+
+
+
+
+class deamonClass(object):
   def __toggle(self, sysv = None, upstart = None):
     if (sysv == upstart) :
       self.__show = set(["sysv","upstart"])
@@ -249,7 +285,7 @@ class deamonClass(object):
                        'force-reload':'Reloading ', 
                        'probe':'Probing '}
                        #Probe = Conditional Reload
-    self.__sysvcommands = ['test', 'try-restart', 'condrestart', 'force-reload', 'probe']
+    self.__upstartcommands = ['start', 'stop', 'restart', 'reload', 'status', 'list', 'emit', 'reload-configuration', 'version', 'log-priority', 'show-config', 'check-config', 'notify-disk-writeable', ' notify-dbus-address', 'list-env', 'reset-env', 'list-sessions']
     self.__encoding = xmlEncoding
 
     self.__toggle(sysv,upstart)
@@ -258,19 +294,20 @@ class deamonClass(object):
     else:
       self.__filters = list(filters)    
 
-  isloaded = property(lambda self: bool(self.__deamons))
-  deamons  = property(lambda self: sorted(self.__deamons.keys()))
-  show     = property(lambda self: sorted(self.__show))
-  encoding = property(lambda self: self.__encoding)
+  isloaded   = property(lambda self: bool(self.__deamons))
+  deamons    = property(lambda self: self.__deamons)
+  deamonKeys = property(lambda self: sorted(self.__deamons.keys()))
+  show       = property(lambda self: sorted(self.__show))
+  encoding   = property(lambda self: self.__encoding)
 
   def upstart(self, deamon):
-    if str(deamon).lower() in self.deamons:
+    if str(deamon).lower() in self.deamonKeys:
       deamon = str(deamon).lower() 
       return bool( self.__deamons[deamon].has_key('upstart') and self.__deamons[deamon]['upstart'].has_key('config') )
     return False
 
   def sysv(self, deamon):
-    if str(deamon).lower() in self.deamons:
+    if str(deamon).lower() in self.deamonKeys:
       deamon = str(deamon).lower() 
       return bool( self.__deamons[deamon].has_key('sysv') )
     return False
@@ -335,9 +372,9 @@ class deamonClass(object):
     if output not in ["text", "xml"]: output = "text"
 
     if not filters is None:
-      tmpKeys = self.__filterList(self.deamons, list(filters))
+      tmpKeys = self.__filterList(self.deamonKeys, list(filters))
     else:
-      tmpKeys = self.deamons
+      tmpKeys = self.deamonKeys
 
     tmpShow = self.show
     if not sysv is None or not upstart is None:
@@ -366,7 +403,7 @@ class deamonClass(object):
       output = '<?xml version="1.0" encoding="' + self.__encoding + '"?>\n' + ElementTree.tostring(xml, encoding=self.__encoding, method="xml")
     else:
       output = ""
-      maxlen = max([0] + [len(k) for k in self.deamons]) + 3
+      maxlen = max([0] + [len(k) for k in self.deamonKeys]) + 3
       for k in sorted(tmpKeys):
         if 'upstart' in self.show and self.__deamons[k].has_key('upstart') and self.__deamons[k]['upstart'].has_key('config'):
           for l in range(len(self.__deamons[k]['upstart']['config'])):
@@ -387,19 +424,14 @@ class deamonClass(object):
     self.__show = tmpShow
     return output
 
-  def execute(self, command, deamon, sysv = None, upstart = None, output = "text", name=""):
-    output = str(output).lower()
-    if output not in ["text", "xml", "pretty"]: output = "text"
-    if name != "":
-      name = str(name)
-      output = "pretty"
+  def execute(self, deamon, command, sysv = None, upstart = None, output = "text", name=""):
 
     tmpShow = self.show
     if not sysv is None or not upstart is None:
       self.__toggle(sysv,upstart)
 
     count = 0
-    for k in self.__filterList(self.deamons, [deamon]):
+    for k in self.__filterList(self.deamonKeys, [deamon]):
       if 'upstart' in self.show and self.__deamons[k].has_key('upstart') and self.__deamons[k]['upstart'].has_key('config'):
         count += 1
         deamon = k
@@ -409,55 +441,30 @@ class deamonClass(object):
         deamon = k
         show = 'sysv'
     if count != 1:
-      raise NameError('You must specify exactly 1 deamon to execute the command (' + command + '). ' + str(count) + ' found!)') 
+      raise NameError('You must specify exactly 1 deamon (' + deamon + ') to execute the command (' + command + '). ' + str(count) + ' found!)') 
 
     if show == 'upstart':
-      if command in self.__sysvcommands:
-        raise NameError('"' + command + '" is not a valid command for an upstart job!') 
+      if not command in self.__upstartcommands:
+        raise NameError('"' + command + '" is not a valid command for an upstart job!')       
       self.__debugPrint('Processing ' + command + ' command on upstart deamon', deamon)
-      p = subprocess.Popen(['initctl', command, self.__deamons[deamon]['upstart']['deamon']], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+      if not name: name = self.__deamons[deamon]['upstart']['deamon']
+      cmdList = ['initctl', command, self.__deamons[deamon]['upstart']['deamon']]
     else:
       self.__debugPrint('Processing ' + command + ' command on SysV deamon', deamon)
-      p = subprocess.Popen(['/etc/init.d/' + self.__deamons[deamon]['sysv']['deamon'], command], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+      cmdList = ['/etc/init.d/' + self.__deamons[deamon]['sysv']['deamon'], command]
 
-    out, err = p.communicate()
-    rc = p.returncode
-    self.__deamons[deamon][show]["returncode"] = rc
-    self.__deamons[deamon][show]["output"] = str(out).strip()
-    self.__deamons[deamon][show]["error"] = str(err).strip()
+    attrib = {}
+    if not name: name = self.__deamons[deamon][show]['deamon']
+    if output == 'pretty':
+      name = self.__commands.get(command, 'Checking for ') + name + ' (' + str(show).title() + ') deamon '
 
-    if output == "xml":
-      xml = ElementTree.Element('deamons')
-      d = ElementTree.SubElement(xml, 'deamon', attrib={'name':deamon})
-      t = ElementTree.SubElement(d, show, attrib={'command':command, 'returncode':str(self.__deamons[deamon][show]["returncode"]), 'name':self.__deamons[deamon][show]['deamon']})
-      o = ElementTree.SubElement(t, 'output')
-      o.text = self.__deamons[deamon][show]["output"]
-      e = ElementTree.SubElement(t, 'error')
-      e.text = self.__deamons[deamon][show]["error"]
-      output = '<?xml version="1.0" encoding="' + self.__encoding + '"?>\n' + ElementTree.tostring(xml, encoding=self.__encoding, method="xml")
-    elif output == "text":
-      output = self.__deamons[deamon][show]["output"]
-      if self.__deamons[deamon][show]["error"]: output += '\n' + self.__deamons[deamon][show]["error"]
-    else:
-      if name == "":
-        name = str(deamon).lower()
-      command = str(command).lower()
-      name = {'start':'Starting ', 
-              'stop':'Stopping ', 
-              'restart':'Restarting ', 
-              'reload':'Reloading ', 
-              'status':'Checking for ', 
-              'test':'Checking for ',
-              'try-restart':'Restarting ', 
-              'condrestart':'Restarting ', 
-              'force-reload':'Reloading ', 
-              'probe':'Probing '}[command] + name + ' (' + str(show).title() + ') deamon '
-      output = deamonFormat().write(name, command, self.__deamons[deamon][show]["returncode"])
+    return getCommand(cmdList, output, name, attrib)
 
-    self.__show = tmpShow
-    return output
 
-def getDiskSpace(output = "text", separator = " ", warning = 80):
+def getDiskSpace(output, name = "", separator = " ", warning = 80):
+  """
+  Retrieve information about the Mounted filesystems and return that in the format requested.
+  """
   def rightSplit(s):
     tmp = str(s).rsplit(' ',1)
     if len(tmp) == 1:
@@ -478,10 +485,16 @@ def getDiskSpace(output = "text", separator = " ", warning = 80):
   out, err = p.communicate()
   rc = p.returncode
 
+  # Process mount output
+  p = subprocess.Popen(['mount'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  out2, err2 = p.communicate()
+  rc2 = p.returncode
+
   tmp = []
   for line in str(out).split('\n')[1:]:
     if line:
       tmp.append([ str(s).strip() for s in str(line).split('%',1) ])
+
   # Correct df output wrap
   count = 0
   while ( count < len(tmp) ):
@@ -497,11 +510,7 @@ def getDiskSpace(output = "text", separator = " ", warning = 80):
     line, used = rightSplit(line)
     filesystem, size = rightSplit(line)
     diskSpace[mount] = {'filesystem':filesystem, 'size':size, 'used':used, 'available':available, 'percent':percent, 'warning':bool(int(percent)>=int(warning))}
-
-  # Process mount output
-  p = subprocess.Popen(['mount'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-  out2, err = p.communicate()
-  rc = p.returncode
+    if int(percent) >= int(warning): rc = 1
 
   tmp = []
   for line in str(out2).split('\n'):
@@ -517,13 +526,14 @@ def getDiskSpace(output = "text", separator = " ", warning = 80):
       diskSpace.update({'fstype':'', 'options':''})
 
     if output == "xml":
+      if not name: name = "diskspace"      
       xml = ElementTree.Element('deamons')
-      d = ElementTree.SubElement(xml, 'deamon', attrib={'name':'diskspace'})
+      d = ElementTree.SubElement(xml, 'deamon', attrib={'name':str(name), 'returncode':str(rc)})
       for k in diskSpace.keys():
         attrib = { tmpKey: str(diskSpace[k][tmpKey]) for tmpKey in diskSpace[k].keys() }
         attrib.update( {"mount":k, 'sizeHuman':humanReadable(diskSpace[k]['size']), 'usedHuman':humanReadable(diskSpace[k]['used']), 'availableHuman':humanReadable(diskSpace[k]['available']) } )
         ElementTree.SubElement(d, 'filesystem', attrib=attrib)
-      return '<?xml version="1.0" encoding="' + encoding + '"?>\n' + ElementTree.tostring(xml, encoding=encoding, method="xml")
+      return rc, '<?xml version="1.0" encoding="' + encoding + '"?>\n' + ElementTree.tostring(xml, encoding=encoding, method="xml")
   else:
     width = {'filesystem':10, 'size':5, 'used':5, 'available':5, 'percent':4, 'mount':10, 'fstype':5, 'options':6}
     for k in diskSpace.keys():
@@ -562,61 +572,60 @@ def getDiskSpace(output = "text", separator = " ", warning = 80):
         red = "\033[1;91m"
         norm = "\033[m\017"
       outputList.append( red + str(separator).join(tmp) + norm )
-    return "\n".join(outputList)
+    return rc, '\n'.join(outputList)
 
-def getPreamble():
+def getPreamble(output, name = ""):
   # Process top output
   p = subprocess.Popen(['top', '-n', '1'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   out, err = p.communicate()
   rc = p.returncode
+
+  # Remove ANSI format characters
   out = out.split("\n")[:5]
   ansi_escape = re.compile(r'\x1b[^m]*[mK]')
   out = [ ansi_escape.sub('', line) for line in out ]
   preamble = re.compile(r'^\D*')
   out[0] = preamble.sub('', out[0])
-  return "\n".join(out)
+  out = "\n".join(out)
+
+  if output == "xml":
+    if not name: name = "preamble"
+    xml = ElementTree.Element('deamons')
+    d = ElementTree.SubElement(xml, 'deamon', attrib={'name':str(name), 'returncode':str(rc)})
+    o =  ElementTree.SubElement(d, 'output')
+    o.text = out
+    if err:
+      e =  ElementTree.SubElement(d, 'error')
+      e.text = err
+    return rc, '<?xml version="1.0" encoding="' + encoding + '"?>\n' + ElementTree.tostring(xml, encoding=encoding, method="xml")
+  else:
+    if err: out = out + '\n' + err
+    return rc, out
 
 
 # Start program
 if __name__ == "__main__":
   command_line_args()
+  if args['autocomplete']: autocomplete(deamons, args['arguments'])
+  if args['setup']: setup()
 
   if args['diskspace']:
     if args['arguments']:
       args['arguments'] = int(args['arguments'][0])
     else:
       args['arguments'] = 80
-    print getDiskSpace(output = args['output'], separator = " ", warning = args['arguments'])
-    exit()
+    rc, output = getDiskSpace(output = args['output'], name = args['name'], separator = " ", warning = args['arguments'])
+    print output
+    exit(rc)
 
   if args['preamble']:
-    if args['output'] == "xml":
-      exit('The preamble is not available in XML.')
-    print getPreamble()
-    exit()
-
-  if args['autocomplete']:
-    autocomplete(deamons, args['arguments'])
-    exit()
+    rc, output = getPreamble(output = args['output'], name = args['name'])
+    print output
+    exit(rc)
 
   if args['command']:
-    p = subprocess.Popen(args['arguments'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out, err = p.communicate()
-    rc = p.returncode
-    if args["output"] == "xml":
-      xml = ElementTree.Element('deamons')
-      cmd = ElementTree.SubElement(xml, 'command', attrib={'cmdStr':" ".join(args['arguments']), "returncode":str(rc) })
-      o =  ElementTree.SubElement(xml, 'output')
-      o.text = out
-      if err:
-        e =  ElementTree.SubElement(xml, 'error')
-        e.text = err
-      print '<?xml version="1.0" encoding="' + encoding + '"?>\n' + ElementTree.tostring(xml, encoding=encoding, method="xml")
-    elif args["output"] == "text":
-      print out
-      if err: print err
-    else:
-      print deamonFormat().write(args['name'], "status", rc)
+    rc, output = getCommand(args['arguments'],args['output'])
+    print output
     exit(rc)
 
 
@@ -637,28 +646,22 @@ if __name__ == "__main__":
     print deamon.list(output=args["output"])
     exit()
 
-  if args["output"] != "xml":
-    for d in deamon.deamons:
-      if deamon.upstart(d):
-        print deamon.execute(cmd, d, output=args["output"], name=args["name"])
-      if deamon.sysv(d):
-        print deamon.execute(cmd, d, output=args["output"], name=args["name"])
-  else:
-    xmlNew = ElementTree.Element('deamons')
-    for d in deamon.deamons:
-      deamonNew = ElementTree.SubElement(xmlNew, 'deamon', attrib={'name':d})
+  totalRC = 0
+  xmlNew = ElementTree.Element('deamons')
+  for d in deamon.deamonKeys:
+    upstart = deamon.deamons[d].has_key('upstart')
+    sysv = deamon.deamons[d].has_key('sysv')
+    if upstart and sysv: sysv = False
+    rc, output = deamon.execute(d, cmd, upstart=upstart, sysv=sysv, output=args["output"], name=args["name"])
+    totalRC = totalRC | rc
+    if args["output"] == "xml":
+      for child in ElementTree.fromstring(output):
+        if child.tag == "deamon": xmlNew.append(child)
+    else:
+      print output
 
-      if deamon.upstart(d):
-        oldXML = ElementTree.fromstring(deamon.execute(cmd, d, output=args["output"], name=args["name"]))
-        for child in oldXML:
-          if child.tag == "deamon": deamonNew.extend(list(child))
-      if deamon.sysv(d):
-        oldXML = ElementTree.fromstring(deamon.execute(cmd, d, output=args["output"], name=args["name"]))
-        for child in oldXML:
-          if child.tag == "deamon": deamonNew.extend(list(child))
-
+  if args["output"] == "xml":
     print '<?xml version="1.0" encoding="' + encoding + '"?>'
     print ElementTree.tostring(xmlNew, encoding=encoding, method="xml")
 
-
-
+  exit(totalRC)
