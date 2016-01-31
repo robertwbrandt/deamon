@@ -228,7 +228,7 @@ def getCommand(cmdList, output, name = "", xmlAttribs = {}):
     if err:
       e =  ElementTree.SubElement(cmd, 'error')
       e.text = str(err).strip()
-    return '<?xml version="1.0" encoding="' + encoding + '"?>\n' + ElementTree.tostring(xml, encoding=encoding, method="xml")
+    return rc, '<?xml version="1.0" encoding="' + encoding + '"?>\n' + ElementTree.tostring(xml, encoding=encoding, method="xml")
   elif output == "text":
     if err: out = out + '\n' + err    
     return rc, out
@@ -627,9 +627,6 @@ if __name__ == "__main__":
     rc, output = getCommand(args['arguments'],args['output'])
     print output
     exit(rc)
-
-
-
 
   deamonFilter = "*"
   cmd = "status"
