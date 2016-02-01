@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 """
 Class used to control system Deamons, either Upstart or SysV.
 """
@@ -66,7 +66,7 @@ class customUsageVersion(argparse.Action):
       options.append(("-v, --version",    "Show program's version number and exit"))
       options.append(("-o, --output",     "Display output type. {text,xml,pretty}"))
       options.append(("-l, --list",       "List all Deamons"))
-      options.append(("    --status-all", "Show the status of all deamons"))
+      options.append(("-a, --status-all", "Show the status of all deamons"))
       options.append(("-u, --upstart",    "Use the Upstart version of the deamon"))
       options.append(("-s, --sysv",       "Use the SysV version of the deamon"))
       options.append(("-n, --name NAME",  "Use the given NAME in the \"pretty\" output"))
@@ -101,7 +101,7 @@ def command_line_args():
   parser.add_argument('--list',
                     required=False,
                     action='store_true')
-  parser.add_argument('--status-all',
+  parser.add_argument('-a', '--status-all',
                     required=False,
                     action='store_true')
   parser.add_argument('-u', '--upstart',
@@ -139,13 +139,7 @@ def setup():
 
   exit()
 
-
-
-
-
-
-
-class outputPretty():
+class outputPretty(object):
   """
   Return a string that will display a color coded status message of a command
   formated to the width of the current terminal.

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 """
 Script for a user friendly dashboard showing all necessary deamons and stats
 """
@@ -17,6 +17,7 @@ args = {}
 args['setup'] = False
 args['xml'] = False
 args['config'] = "/etc/brandt/dashboard.conf"
+encoding = "utf-8"
 
 class customUsageVersion(argparse.Action):
   def __init__(self, option_strings, dest, **kwargs):
@@ -105,26 +106,6 @@ last,       Disk Usage,              /bin/df,               deamon -d 84
   exit()
 
 
-def runCommands(commands):
-  global args   
-  for line in commands:
-    name, present, cmd = line[1], line[2], str(line[3]).split(" ")
-
-    if cmd[0] == "deamon":
-      del cmd[0]
-      cmd = ["--name",name] + cmd
-      if ("-o" not in cmd) and ("--output" not in cmd):
-        if args['xml']:
-          cmd = ["--output","xml"] + cmd
-        else:
-          cmd = ["--output","pretty"] + cmd        
-      cmd = ["deamon"] + cmd
-
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    out,err = p.communicate()
-    rc = p.returncode
-    print str(out).strip()
-
 # Start program
 if __name__ == "__main__":
   command_line_args()
@@ -134,17 +115,40 @@ if __name__ == "__main__":
   f = open(args['config'], "r")
   for line in f.read().split('\n'):
     if line and str(line)[0] not in ["#",";"," ","\t"]:        
-      config.append( [ l.strip() for l in line.split(",") ] )
+      config.append( [ str(l).strip() for l in line.split(",") ] )
   f.close()
 
-  xml = ""
-  # Run FIRST lines first
-  tmp = runCommands( [ l for l in config if l[0] == "first" ] )
+  xml = ElementTree.Element('deamons')
 
-  # Run non FIRST or LAST lines
-  tmp = runCommands( [ l for l in config if l[0] not in ["first","last"] ] )
+  rc = 0
+  for test in ['first', 'present', 'last']:
+    # rc, out = runCommands( [ line for line in config if str(line[0]).lower() == test ] )
+    for line in config:
+      if str(line[0]).lower() == test:
+        name, present, cmd = line[1], line[2], str(line[3]).split(" ")
 
-  # Run LAST lines last
-  tmp = runCommands( [ l for l in config if l[0] == "last" ] )
+        if cmd[0] == "deamon":
+          del cmd[0]
+          cmd = ["--name",name] + cmd
+          if ("-o" not in cmd) and ("--output" not in cmd):
+            if args['xml']:
+              cmd = ["--output","xml"] + cmd
+            else:
+              cmd = ["--output","pretty"] + cmd        
+          cmd = ["deamon"] + cmd
 
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        out,err = p.communicate()
+        rc = rc | p.returncode
+        out = str(out).strip()
+        if args["xml"]:
+          for child in ElementTree.fromstring(out):
+            if child.tag == "deamon": xml.append(child)
+        else:
+          print out
 
+  if args["xml"]:  
+    print '<?xml version="1.0" encoding="' + encoding + '"?>'
+    print ElementTree.tostring(xml, encoding=encoding, method="xml")
+
+  exit(rc)
