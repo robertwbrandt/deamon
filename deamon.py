@@ -2,7 +2,7 @@
 """
 Class used to control system Deamons, either Upstart or SysV.
 """
-import argparse, textwrap
+import argparse, textwrap, errno
 import fnmatch, subprocess, re, datetime
 import xml.etree.ElementTree as ElementTree
 
@@ -135,7 +135,12 @@ def setup():
   # Create Symbolic link at /usr/local/bin
   src = os.path.realpath( __file__ )
   dst = os.path.join( '/usr/local/bin', os.path.splitext(os.path.basename(__file__))[0] )
-  os.symlink(src, dst)
+  try:
+    os.symlink(src, dst)
+  except OSError, e:
+    if e.errno == errno.EEXIST:
+      os.remove(dst)
+      os.symlink(src, dst)
 
   exit()
 
