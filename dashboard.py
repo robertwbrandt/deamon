@@ -107,7 +107,7 @@ present,    ntp,        Network Time Protocol,        /etc/init.d/ntp,          
 last,       du,         Disk Usage,                   /bin/df,                      deamon -d 84
 ###############################################################################
 """)
-  f.close()
+    f.close()
   exit()
 
 
