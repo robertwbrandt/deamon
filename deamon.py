@@ -3,7 +3,7 @@
 Class used to control system Deamons, either Upstart or SysV.
 """
 import argparse, textwrap
-import fnmatch, subprocess, re
+import fnmatch, subprocess, re, datetime
 import xml.etree.ElementTree as ElementTree
 
 # Import Brandt Common Utilities
@@ -418,7 +418,7 @@ class deamonClass(object):
     self.__show = tmpShow
     return output
 
-  def execute(self, deamon, command, sysv = None, upstart = None, output = "text", name=""):
+  def execute(self, deamon, command, arguments = [], sysv = None, upstart = None, output = "text", name=""):
 
     tmpShow = self.show
     if not sysv is None or not upstart is None:
@@ -445,7 +445,7 @@ class deamonClass(object):
       cmdList = ['initctl', command, self.__deamons[deamon]['upstart']['deamon']]
     else:
       self.__debugPrint('Processing ' + command + ' command on SysV deamon', deamon)
-      cmdList = ['/etc/init.d/' + self.__deamons[deamon]['sysv']['deamon'], command]
+      cmdList = ['/etc/init.d/' + self.__deamons[deamon]['sysv']['deamon'], command] + list(arguments)
 
     attrib = {}
     if not name: name = self.__deamons[deamon][show]['deamon']
@@ -572,7 +572,7 @@ def getPreamble(output, name = ""):
   # Process top output
   p = subprocess.Popen(['top', '-n', '1'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   out, err = p.communicate()
-  rc = p.returncode
+  rc = int(bool( not err == "" ))
 
   # Remove ANSI format characters
   out = out.split("\n")[:5]
@@ -623,11 +623,14 @@ if __name__ == "__main__":
     exit(rc)
 
   deamonFilter = "*"
-  cmd = "status"
+  command = "status"
+  arguments = []
   if len(args['arguments']) > 0: deamonFilter = args['arguments'][0]
-  if len(args['arguments']) > 1: cmd = args['arguments'][1]
+  if len(args['arguments']) > 1: 
+    command = args['arguments'][1]
+    arguments = args['arguments'][2:]
   if args['status_all']: 
-    cmd = "status"
+    command = "status"
     args['name'] = ""
 
   deamon = deamonClass(filters=[deamonFilter], sysv=args['sysv'], upstart=args['upstart'], debug = args['debug'], xmlEncoding = encoding)
@@ -638,12 +641,14 @@ if __name__ == "__main__":
     exit()
 
   totalRC = 0
-  xmlNew = ElementTree.Element('deamons')
+
+  attrib = {'host':os.uname()[1], 'date':datetime.datetime.strftime(datetime.datetime.now(),'%Y%m%d%H%M%S')} 
+  xmlNew = ElementTree.Element('deamons', attrib = attrib)
   for d in deamon.deamonKeys:
     upstart = deamon.deamons[d].has_key('upstart')
     sysv = deamon.deamons[d].has_key('sysv')
     if upstart and sysv: sysv = False
-    rc, output = deamon.execute(d, cmd, upstart=upstart, sysv=sysv, output=args["output"], name=args["name"])
+    rc, output = deamon.execute(d, command, arguments, upstart=upstart, sysv=sysv, output=args["output"], name=args["name"])
     totalRC = totalRC | rc
     if args["output"] == "xml":
       for child in ElementTree.fromstring(output):

@@ -3,7 +3,7 @@
 Script for a user friendly dashboard showing all necessary deamons and stats
 """
 import argparse, textwrap
-import fnmatch, subprocess, re
+import fnmatch, subprocess, re, datetime
 import xml.etree.ElementTree as ElementTree
 
 # Import Brandt Common Utilities
@@ -95,11 +95,11 @@ def setup():
 ###############################################################################
 # {first|
 #  present|
-#  last},   name,                    present,               status command
-first,      Uptime,                  /usr/bin/top,          deamon -p
-present,    Network,                 /etc/init.d/network,   deamon -s network status
-present,    Network Time Protocol,   /etc/init.d/ntp,       deamon -s ntp status
-last,       Disk Usage,              /bin/df,               deamon -d 84
+#  last},   XML Name,   Friendly Name,                present,                      status command
+first,      top,        Uptime,                       /usr/bin/top,                 deamon -p
+present,    network,    Network,                      /etc/init.d/brandt-network,   deamon -s brandt-network status
+present,    ntp,        Network Time Protocol,        /etc/init.d/ntp,              deamon -s brandt-ntp status
+last,       du,         Disk Usage,                   /bin/df,                      deamon -d 84
 ###############################################################################
 """)
   f.close()
@@ -115,40 +115,41 @@ if __name__ == "__main__":
   f = open(args['config'], "r")
   for line in f.read().split('\n'):
     if line and str(line)[0] not in ["#",";"," ","\t"]:        
-      config.append( [ str(l).strip() for l in line.split(",") ] )
+      config.append( [ str(l).strip() for l in line.split(",", 4) ] )
   f.close()
 
-  xml = ElementTree.Element('deamons')
+  attrib = {'host':os.uname()[1], 'date':datetime.datetime.strftime(datetime.datetime.now(),'%Y%m%d%H%M%S')}
+  xml = ElementTree.Element('deamons', attrib = attrib)
 
   rc = 0
   for test in ['first', 'present', 'last']:
-    # rc, out = runCommands( [ line for line in config if str(line[0]).lower() == test ] )
     for line in config:
       if str(line[0]).lower() == test:
-        name, present, cmd = line[1], line[2], str(line[3]).split(" ")
+        xmlname, name, present, cmd = line[1], line[2], line[3], str(line[4]).split(" ")
 
-        if cmd[0] == "deamon":
-          del cmd[0]
-          cmd = ["--name",name] + cmd
-          if ("-o" not in cmd) and ("--output" not in cmd):
-            if args['xml']:
-              cmd = ["--output","xml"] + cmd
-            else:
-              cmd = ["--output","pretty"] + cmd        
-          cmd = ["deamon"] + cmd
+        if os.path.isfile(present):
+          if cmd[0] == "deamon":
+            del cmd[0]
+            if ("-o" not in cmd) and ("--output" not in cmd):
+              if args['xml']:
+                cmd = ["--name",xmlname,"--output","xml"] + cmd
+              else:
+                cmd = ["--name",name,"--output","pretty"] + cmd        
+            cmd = ["deamon"] + cmd
 
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        out,err = p.communicate()
-        rc = rc | p.returncode
-        out = str(out).strip()
-        if args["xml"]:
-          for child in ElementTree.fromstring(out):
-            if child.tag == "deamon": xml.append(child)
-        else:
-          print out
+          p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+          out,err = p.communicate()
+          rc = rc | p.returncode
+          out = str(out).strip()
+          if args["xml"]:
+            for child in ElementTree.fromstring(out):
+              if child.tag == "deamon": xml.append(child)
+          else:
+            print out
 
   if args["xml"]:  
     print '<?xml version="1.0" encoding="' + encoding + '"?>'
     print ElementTree.tostring(xml, encoding=encoding, method="xml")
 
   exit(rc)
+  
